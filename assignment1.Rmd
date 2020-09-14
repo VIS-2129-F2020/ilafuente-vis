@@ -247,7 +247,6 @@ ggcorrplot(corr, hc.order = TRUE,
            method="square", 
            colors = c("tomato2", "white", "springgreen3"),
            ggtheme=theme_bw)
-
 ```
 
 ##### Some cool stuff I got from a link Marissa provided. I always use this prior to running regressions (so that you can ommit two or more variables that show the same and would thus generate a harmful zero-column in the matrix containing the beta coefficients). The fact is that I had always used it as a formatted table, and a graph looks much better. 
