@@ -1,0 +1,177 @@
+---
+title: "Assignment 2"
+author: "Ignacio Lafuente"
+date: "9/20/2020"
+output: html_document
+---
+
+### Projections and Distortions
+
+```{r load libraries, message = FALSE, results = 'hide'}
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(tidyverse)
+library(ggspatial)
+library(cartogram)
+library(ggthemes)
+library(dplyr)
+library(wesanderson)
+library(RColorBrewer)
+```
+
+```{r world map}
+world <- ne_countries(scale = 50, returnclass = "sf") 
+world_map <- ggplot(world) +
+  geom_sf() +
+  theme_classic()
+
+world_map
+```
+
+## South America default map
+
+```{r South America}
+sa_countries <- world %>%
+  filter(continent == "South America")
+
+sa_map <- ggplot(sa_countries) +
+  geom_sf() + 
+  theme_bw() +
+  annotation_scale()
+
+sa_map
+```
+
+## Projected Coordinate Systems
+
+##### 1 EPSG:3114 MAGNA-SIRGAS / Colombia Far West zone
+##### 2 SR-ORG:8347 Lambert Azimutal Equal Area Bahia Brazil
+##### 3 EPSG:2081 Chos Malal 1914 / Argentina zone 2
+
+My intention was to pick opposite extreme points (far North-West, far East, far Sorth)
+
+```{r projected coordinate systems}
+col_fwest <- "+proj=tmerc +lat_0=4.596200416666666 +lon_0=-80.07750791666666 +k=1 +x_0=1000000 +y_0=1000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+bahia_br <- "+proj=laea +lat_0=-13 +lon_0=-42 +x_0=600000 +y_0=600000 +ellps=GRS80 +units=m +no_defs"
+patagonia_ar <- "+proj=tmerc +lat_0=-90 +lon_0=-69 +k=1 +x_0=2500000 +y_0=0 +ellps=intl +units=m +no_defs"
+```
+
+## South America - Colombia Far West Zone projection
+
+```{r South America proj 1}
+ggplot(sa_countries) +
+  geom_sf() + 
+  coord_sf(crs = col_fwest) +
+  theme_bw() +
+  annotation_scale()
+```
+
+## South America - Lambert Azimutal Equal Area Bahia Brazil projection
+
+```{r South America proj 2}
+ggplot(sa_countries) +
+  geom_sf() + 
+  coord_sf(crs = bahia_br) +
+  theme_bw() +
+  annotation_scale()
+```
+
+## South America - Chos Malal 1914 / Argentina Zone 2 projection
+
+```{r South America proj 3}
+ggplot(sa_countries) +
+  geom_sf() + 
+  coord_sf(crs = patagonia_ar) +
+  theme_bw() +
+  annotation_scale()
+```
+
+```{r transform}
+countries_transformed <- sa_countries %>%
+  st_transform(crs = patagonia_ar)
+```
+
+#### Importing Covid-19 data
+
+```{r importing covid deaths, message = FALSE, results = 'hide'}
+covid_world <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/09-20-2020.csv")
+
+covid_world_2 <- select(covid_world, Country_Region, Deaths)
+
+covid_world_3 <- aggregate(covid_world_2[-1], by = list(covid_world$Country_Region), FUN = sum)
+
+covid_sa <- countries_transformed %>%
+  left_join(covid_world_3, by = c("name" = "Group.1")) %>%
+  select(name, pop_est, Deaths)
+
+covid_sa$deaths_per_m <- covid_sa$Deaths / covid_sa$pop_est * 1000000
+
+```
+
+## Covid accumulated deaths by country, per million inhabitants, as of 09-20-2020
+
+```{r deaths per million inhabitants}
+ggplot(covid_sa, aes(fill = deaths_per_m)) +
+  geom_sf(color = NA) +
+  scale_fill_viridis_c(
+    name = "Number of\nreported\nCOVID-19\naccumulated\ndeaths per million\ninhabitants as of\nSeptember 20, 2020",
+    breaks = seq(0, 1000, by = 200),
+    labels = formatC(seq(0, 1000, by = 200), 
+                     format = "f", digits = 0)) +
+  theme_map() +
+  theme(legend.background = element_blank(),
+        legend.position="left")
+```
+
+A cloropleth of (in my opinion) the most relevant metric about the Covid-19 pandemic.
+
+#### Importing area data and defining population density and GDP per capita
+
+```{r population density, message = FALSE, results = 'hide'}
+world_area <- read_csv2("areas_sa.csv")
+
+sa_countries_2 <- countries_transformed %>%
+  left_join(world_area, by = c("name" = "country")) %>%
+  select(name, pop_est, tot_area_km2, gdp_md_est)
+
+sa_countries_2$density <- sa_countries_2$pop_est / sa_countries_2$tot_area_km2
+
+sa_countries_2$y <- sa_countries_2$gdp_md_est / sa_countries_2$pop_est * 1000000
+```
+
+## Continuous Cartogram - GDP per capita
+
+(Outdated)
+
+```{r mapping density, message = FALSE, results = 'hide'}
+gdppc_cartogram_cont <- sa_countries_2 %>%
+  cartogram_cont("y")
+
+ggplot(gdppc_cartogram_cont) +
+  geom_sf(fill = "#330066", color = "gray") +
+  theme_map()
+```
+
+Even if the aesthetics could be much better, I personally do not find these cartograms useful, besides the curiosity of understanding their underlying logic for the first time. I think a lot of communication efficiency is lost when the shapes people are used to see are not available.
+
+## Proportional symbol map on Population Density
+
+```{r proportional symbol map, message = FALSE, results = 'hide'}
+sa_centeroids <- sa_countries_2 %>%
+  st_centroid()
+
+ggplot(sa_countries_2) +
+  geom_sf(fill = "#CCCCCC", color = "black") +
+  geom_sf(data = sa_centeroids, 
+          aes(size = density),
+          alpha = 0.5, color = "#990000") +
+  scale_size_continuous(name = "Population density\nas inhabitants per km2",
+    breaks = seq(0, 60, by = 10),
+    labels = formatC(seq(0, 60, by = 10), 
+                     format = "f", digits = 0),
+    range = c(0, 20)) +
+  theme_void() 
+```
+
+I like this format. The only issue is that plotting bigger circles or a larger range would increase the legend size since it is shown 1:1, and the map would seem irrelevant.
