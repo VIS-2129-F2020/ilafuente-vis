@@ -1,0 +1,277 @@
+---
+title: "Assignment 3"
+author: "Ignacio Lafuente"
+date: "9/25/2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    highlight: tango
+    code_folding: hide
+---
+
+## Creative Assignment 3: Areas and locations (points/polygons)
+
+#### City: Buenos Aires (city proper)
+
+#### Polygon layers: counties, public space
+
+#### Point layers: ATMs, sport clubs
+
+```{r load libraries, message=FALSE, results='hide'}
+library(sf)
+library(tidyverse)
+library(ggthemes)
+library(ggspatial)
+library(units)
+library(nngeo)
+library(RColorBrewer)
+```
+
+```{r load data, message=FALSE, results='hide'}
+comunas <- st_read("C:/Users/nacho/Desktop/MUP/GIS/bsas/comunas.shp", quiet = TRUE) 
+
+publicspaces <- st_read("C:/Users/nacho/Desktop/MUP/GIS/bsas/espacio-verde-publico.shp", quiet = TRUE)
+
+atms <- st_read("C:/Users/nacho/Desktop/MUP/GIS/bsas/cajeros-automaticos.shp", quiet = TRUE) 
+
+clubs <- st_read("C:/Users/nacho/Desktop/MUP/GIS/bsas/clubes.shp", quiet = TRUE) 
+```
+
+Disclaimer: I had to upload local files because .csv files were not working when trying to project their coordinates, and .shp files are downloaded as .zip or .rar files, so they had to be extracted first. I wonder if there is any feature within R to directly extract these files and thus be able to paste .zip or .rar URLs.
+
+### Coordinates projection
+
+#### Projection according to Campo Inchauspe (conventional projection for Buenos Aires City)
+
+```{r transform data, class.source = 'fold-show'}
+campoinchauspe <- "+proj=tmerc +lat_0=-34.629717 +lon_0=-58.4627 +k=1 +x_0=100000 +y_0=100000 +a=6378388 +b=6378386.996621622 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+
+comunas <- comunas %>%
+  st_transform(campoinchauspe)
+
+publicspaces <- publicspaces %>%
+  st_transform(campoinchauspe)
+
+atms <- atms %>%
+  st_transform(campoinchauspe)
+
+clubs <- clubs %>%
+  st_transform(campoinchauspe)
+```
+
+### Data preview
+
+```{r full graph}
+ggplot(publicspaces) +
+  geom_sf(fill = "darkgreen", color = NA) +
+  geom_sf(data = clubs, color = "blue", size = 0.2) +
+  geom_sf(data = atms, color = "darkred", size = 0.2) +
+  geom_sf(data= comunas, fill = NA, color = "darkgray") +
+  theme_map() +
+  annotation_scale(location = "br")
+```
+
+### Metric 1
+
+#### Number and proportion of sport clubs within a specified distance of ATMs
+
+If we consider a 200-meters walk (2 traditional blocks of Buenos Aires) a comfortable distance for finding an ATM, how many sport clubs are at such a walking distance or less from ATMs? This could be useful given that these clubs have generally cash-only snack bars and restaurants.
+
+```{r buffer}
+atms_buffer <- st_buffer(atms, dist = 200) %>%
+  st_union()
+
+clubs_atms <- clubs[atms_buffer,]
+  
+ggplot(atms_buffer) +
+  geom_sf() +
+  geom_sf(data = clubs_atms, 
+          color = "purple", 
+          size = 0.5) +
+  theme_map()
+```
+
+```{r join, calculate and map 1}
+left_side  <- st_bbox(comunas)$xmin
+top_side <- st_bbox(comunas)$ymax
+right_side <- st_bbox(comunas)$xmax
+bottom_side <- st_bbox(comunas)$ymin
+
+
+clubs <- clubs %>%
+  st_join(clubs_atms) %>%
+  mutate(by_atms = !is.na(NOMBRE.y))
+
+n_atms_clubs <- sum(clubs$by_atms)
+
+ggplot(comunas) +
+  geom_sf(fill = NA, color = "darkgray") +
+  geom_sf(data = clubs, size = 0.5,
+          aes(color = by_atms)) +
+  scale_color_manual(values = c("lightblue", "darkblue"),
+          name = "Sport clubs in Buenos Aires\nby distance to an ATM", 
+          labels = c("No ATM within 200 m",
+                     "ATM within 200 m")) +
+  annotation_scale(location = "br") +
+annotate(geom = "text", x = right_side, 
+           y = top_side, 
+           label = paste("Of the ", 
+                         prettyNum(nrow(clubs), big.mark = ","),
+                         " sport clubs in Buenos Aires\n", 
+                         prettyNum(n_atms_clubs, big.mark = ","),
+                         " (", 
+                         prettyNum(100*n_atms_clubs/nrow(clubs), digits = 0),
+                         "%) are within 200\nmeters of an ATM.",
+                         sep = ""),
+           hjust = 1, vjust = 1, size = 3) +
+  theme_map() +
+  theme(panel.background = element_rect(fill = "#FFFFCC"),
+        legend.position = "right",
+        legend.background = element_rect(fill = alpha("white", 0.5),
+                                         color = "gray"))
+```
+
+### Metric 3
+
+#### Average (Euclidean) distance between sport clubs and their nearest ATM
+
+```{r definition of distance and map, message=FALSE, results='hide'}
+clubs <- clubs %>%
+  mutate(atms_dist = st_nn(clubs, atms, 
+                           returnDist = TRUE)$dist) %>%
+  mutate(atms_dist = as.numeric(atms_dist))
+
+avg_atm_dist <- mean(clubs$atms_dist)
+
+ggplot(comunas) +
+  geom_sf(fill = NA, color = "black") +
+  geom_sf(data = clubs, size = 0.8,
+          aes(color = atms_dist)) +
+  scale_color_viridis_c(option = "magma", name = 
+                          "Sport clubs in Buenos Aires\nby distance to the nearest ATM") +
+  annotation_scale(location = "br") +
+  annotate(geom = "text", x = right_side, 
+           y = top_side - 550, 
+           label = paste("On average, a sport club in Buenos Aires\nis ", 
+                         prettyNum(avg_atm_dist, digits = 4),
+                         " meters from an ATM.",
+                         sep = ""),
+           hjust = 1, vjust = 0, size = 3) +
+  theme_map() +
+  theme(panel.background = element_rect(fill = "#CCCCCC"),
+        legend.position = "left",
+        legend.background = element_rect(fill = alpha("white", 0.5), 
+                                         color = "gray"))
+```
+
+### Metric 14
+
+#### Number and proportion of public spaces that overlap with counties Comuna 1, Comuna 8 and Comuna 14
+
+These three contain the biggest groups of public spaces: the Ecological Reserve by the river, the '3 de Febrero' Park and the 'Almirante Brown' Park.
+
+```{r initial map 14}
+comunas_1814 <- comunas[ which(comunas$COMUNAS==1
+| comunas$COMUNAS==8 | comunas$COMUNAS==14), ]
+
+public_1814 <- publicspaces[comunas_1814,]
+
+ggplot(comunas) +
+  geom_sf(color = "black", fill = "white") +
+  geom_sf(data = comunas_1814, fill = "#CCCCCC") +
+  geom_sf(data = publicspaces, 
+          fill = "#009900", color = NA) +
+  geom_sf(data = public_1814,color = NA, fill = "darkgreen") +
+  annotation_scale(location = "br") +
+  annotate(geom = "text", x = right_side, 
+           y = top_side, 
+           label = paste(prettyNum(nrow(public_1814) / nrow(publicspaces)*100, digits = 4), "% of all public green spaces\nin Buenos Aires are located within\n counties / Comunas 1, 8 and 14.",
+                         sep = ""),
+           hjust = 1, vjust = 1, size = 3) +
+  theme_map()
+```
+
+### Metric 7
+
+#### Number and proportion of sport clubs within Comuna 14 and Comuna 8 altogether
+
+'3 de Febrero' and 'Almirante Brown' parks are supposed to feature the biggest concentration of sport clubs (at least among those with outdoors facilities).
+
+```{r clubs parks}
+comunas_clubs <- comunas[ which(comunas$COMUNAS==8 | comunas$COMUNAS==14), ]
+
+clubs_814 <- clubs[comunas_clubs,]
+
+ggplot(comunas) +
+  geom_sf(color = "black", fill = "#CCCCCC") +
+  geom_sf(data = comunas_clubs, fill = "darkgray") +
+  geom_sf(data = clubs, 
+          color = "darkblue", size = 0.5) +
+  geom_sf(data = clubs_814, color= "purple", size = 0.5) +
+  annotation_scale(location = "br") +
+  annotate(geom = "text", x = right_side, 
+           y = top_side, 
+           label = paste(prettyNum(nrow(clubs_814) / nrow(clubs)*100, digits = 4), "% of all sport clubs in Buenos Aires\nare located within counties /\nComunas 8 and 14.",
+                         sep = ""),
+           hjust = 1, vjust = 1, size = 3) +
+  theme_map()
+```
+
+### Metric 5
+
+#### Number and proportion of ATMs within Comuna 1 county
+
+Comuna 1 is the county which contains the downtown, and thus the densest in terms of banks. Is seems this still holds true when it comes to ATMs.
+
+```{r ATMs comuna 1}
+comuna1 <- comunas[ which(comunas$COMUNAS==1), ]
+
+atms_1 <- atms[comuna1,]
+
+ggplot(comunas) +
+  geom_sf(color = "black", fill = "white") +
+  geom_sf(data = comuna1, fill = "#CCCCCC") +
+  geom_sf(data = atms, 
+          color = "darkred", size = 0.2) +
+  geom_sf(data = atms_1, color= "red", size = 0.2) +
+  annotation_scale(location = "br") +
+  annotate(geom = "text", x = right_side, 
+           y = top_side, 
+           label = paste(prettyNum(nrow(atms_1) / nrow(atms)*100, digits = 4), "% of all ATMs in Buenos Aires\nare located within Comuna 1.",
+                         sep = ""),
+           hjust = 1, vjust = 1, size = 3) +
+  theme_map()
+```
+
+### Metric 16
+
+#### Average number of ATMs per county/Comuna
+
+```{r map 16}
+comunas <- comunas %>%
+  mutate(num_atms = lengths(st_covers(comunas, atms)))
+
+ggplot(comunas) +
+  geom_sf(color = "gray", 
+          aes(fill = num_atms)) +
+  scale_color_gradient(name = "Comunas of Buenos Aires\nby number of ATMs",
+                       breaks = breaks <- seq(0, 400, by = 50),
+                       labels = paste(prettyNum(breaks, big.mark = ","),
+                                      "ATMs")) +
+  annotation_scale(location = "br") +
+  annotate(geom = "text", x = right_side, 
+           y = top_side, 
+           label = paste("The average number of ATMs\n per county / comuna is ", prettyNum(mean(comunas$num_atms), digits = 3),
+                         sep = ""),
+           hjust = 1, vjust = 1, size = 3) +
+theme_map() +
+  theme(legend.background = element_rect(fill = alpha("white", 0.5), color = "gray"),
+        legend.position = "left")
+
+
+```
+
+### Acknowledgements
+
+Julia suggested me many commands for making the output look better (the possibility of a having a table of contents, to toggle-on or off the different chunks, dividing the file into sections, etc.).
