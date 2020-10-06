@@ -1,0 +1,144 @@
+---
+title: "Assignment 4"
+author: "Ignacio Lafuente"
+date: "10/2/2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    highlight: tango
+    code_folding: hide
+---
+
+## Creative Assignment 4 - Lines and Networks
+
+### Loading libraries and data
+
+My analysis will be about 'relevant points of my life', i.e. places were I have lived, studied or worked within the city of Buenos Aires, and their accessibility by foot and by bicycle.
+
+```{r load libraries, message=FALSE, results='hide'}
+library(osmdata)
+library(opentripplanner)
+library(tidyverse)
+library(sf)
+library(ggthemes)
+library(ggspatial)
+library(RColorBrewer)
+```
+
+```{r importing files, message=FALSE, results='hide'}
+points <- read.csv2("ba_points.csv")
+```
+
+### Setting coordinates projection system
+
+```{r projecting coordinates}
+campoinchauspe <- "+proj=tmerc +lat_0=-34.629717 +lon_0=-58.4627 +k=1 +x_0=100000 +y_0=100000 +a=6378388 +b=6378386.996621622 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+
+points2 <- st_as_sf(points, coords = c("X", "Y"), crs = campoinchauspe)
+```
+
+### Loading street networks for Buenos Aires
+
+```{r}
+ba_street_query <- opq(bbox = 'Buenos Aires Argentina') %>%
+  add_osm_feature(key = 'highway')
+
+ba_street_query %>%
+  osmdata_xml(file = 'OTP/graphs/default/ba_streets.osm')
+
+ba_street_features <- ba_street_query %>%
+  osmdata_sf()
+
+ba_streets <- ba_street_features$osm_lines %>%
+  st_transform(crs = campoinchauspe)
+
+```
+
+### Network preview
+
+```{r}
+ggplot(ba_streets) +
+  geom_sf() +
+  theme_map()
+```
+### Setting up Open Trip Planner
+
+```{r, message=FALSE, results='hide'}
+path_data <- file.path(getwd(), "OTP")
+path_otp <- paste(path_data, "otp.jar",sep = "/")
+otp_build_graph(otp = path_otp, dir = path_data, memory = 1024) 
+```
+
+```{r}
+otp_setup(otp = path_otp, dir = path_data, memory =1024)
+otpcon <- otp_connect()
+```
+
+### Creating and plotting isochrones
+
+I will be creating isochrones for a seven-minute period, by foot and by bicycle. Five minutes seemed short for a relevant walking distance in Buenos Aires, but ten minutes led to big sized isochrones which were overlapping one another. That is why I chose this odd number.
+
+```{r generating isochrones, results = 'hide', message = FALSE}
+iso_7min_walk <- 
+  otp_isochrone(otpcon = otpcon, fromPlace = points2,                 mode = "WALK", cutoffSec = 420) %>%
+  st_transform(crs = campoinchauspe) %>%
+  mutate(mode = "walk")
+iso_7min_bike <- 
+  otp_isochrone(otpcon = otpcon, fromPlace = points2,
+                mode = "BICYCLE", cutoffSec = 420) %>%
+  st_transform(crs = campoinchauspe) %>%
+  mutate(mode = "bicycle")
+iso_all_modes <- rbind(iso_7min_bike, iso_7min_walk)
+
+otp_stop()
+```
+
+```{r plotting isochrones}
+right_side <- st_bbox(iso_all_modes)$xmax
+left_side  <- st_bbox(iso_all_modes)$xmin
+top_side <- st_bbox(iso_all_modes)$ymax
+bottom_side <- st_bbox(iso_all_modes)$ymin
+
+ggplot(iso_all_modes) +
+  annotation_map_tile(zoomin = 0, progress = "none") +
+  geom_sf(aes(fill = mode), alpha = 0.4) +
+  geom_sf(data = points2) + ## not showing
+  coord_sf(xlim = c(left_side, right_side), 
+           ylim = c(bottom_side, top_side), expand = FALSE) +
+  scale_fill_brewer(name = "Area that is reachable within 7 minutes",
+                    palette = "Set2",
+                    labels = c("By bicycle", "By foot")) +
+  theme_map() +
+  labs(caption = "Basemap Copyright OpenStreetMap contributors")
+```
+
+### Spatial join (keeping points' records in the isochrones)
+
+```{r}
+iso_all_modes2 <- st_join(iso_all_modes, points2) ##empty output
+```
+
+
+### Analyzing relations between isochrones
+
+```{r}
+iso_areas <- iso_all_modes %>%
+  mutate(area = st_area(iso_all_modes)) %>%
+  st_set_geometry(NULL) %>%
+  pivot_wider(names_from = mode, values_from = area) %>%
+  mutate(ratio_btow = as.numeric(bicycle) / as.numeric(walk))
+```
+
+### Defining scalars for Euclidean distance buffers
+
+I am assuming average walking speed is 5 km/h, whereas the average biking speed is 13 km/h (this was my frequent commute, taking some red lights into account, for example). The analysis might be biased if OTP used substantially different standards.
+
+These average speeds times the seven-minute period would be the distance, and thus the radii of a buffer. The area of that buffer would be, under some assumptions, TT * r^2.
+
+```{r scalars euclidean}
+bike = pi * (7/60 * 13)^2
+walk = pi * (7/60 * 5)^2
+```
+
+#### figures: 45° line (implicit ratio btow), ratio btow, ratio isochrone to euclidean for both modes
