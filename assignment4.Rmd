@@ -24,21 +24,30 @@ library(sf)
 library(ggthemes)
 library(ggspatial)
 library(RColorBrewer)
+library(forcats)
 ```
+
+I will be using two equal data frames, since the csv was able to generate the isochrones but was not visible or "joinable", whereas the kml was not able to generate the isochrones. It was hard to find out what was happening but this way is enough to get the maps and figures done.
 
 ```{r importing files, message=FALSE, results='hide'}
-points <- read.csv2("ba_points.csv")
+points <- st_read("ba_points.kml") %>%
+  mutate(type = ifelse(Name == "work", "Work",
+                       ifelse(substr(Name, 1, 4) == "home", "Home", "Education")))
+
+points_iso <- read.csv2("ba_points.csv")
 ```
 
-### Setting coordinates projection system
+#### Setting coordinates projection system
 
 ```{r projecting coordinates}
 campoinchauspe <- "+proj=tmerc +lat_0=-34.629717 +lon_0=-58.4627 +k=1 +x_0=100000 +y_0=100000 +a=6378388 +b=6378386.996621622 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
 
-points2 <- st_as_sf(points, coords = c("X", "Y"), crs = campoinchauspe)
+points2 <- st_transform(points, crs = campoinchauspe)
+
+points_iso2 <- st_as_sf(points_iso, coords = c("X", "Y"), crs = campoinchauspe)
 ```
 
-### Loading street networks for Buenos Aires
+#### Loading street networks for Buenos Aires
 
 ```{r}
 ba_street_query <- opq(bbox = 'Buenos Aires Argentina') %>%
@@ -55,14 +64,16 @@ ba_streets <- ba_street_features$osm_lines %>%
 
 ```
 
-### Network preview
+### Network and data preview
 
 ```{r}
 ggplot(ba_streets) +
   geom_sf() +
+  geom_sf(data = points2, color = "blue", size = 3) +
   theme_map()
 ```
-### Setting up Open Trip Planner
+
+#### Setting up Open Trip Planner
 
 ```{r, message=FALSE, results='hide'}
 path_data <- file.path(getwd(), "OTP")
@@ -70,7 +81,7 @@ path_otp <- paste(path_data, "otp.jar",sep = "/")
 otp_build_graph(otp = path_otp, dir = path_data, memory = 1024) 
 ```
 
-```{r}
+```{r, message=FALSE, results='hide'}
 otp_setup(otp = path_otp, dir = path_data, memory =1024)
 otpcon <- otp_connect()
 ```
@@ -81,11 +92,11 @@ I will be creating isochrones for a seven-minute period, by foot and by bicycle.
 
 ```{r generating isochrones, results = 'hide', message = FALSE}
 iso_7min_walk <- 
-  otp_isochrone(otpcon = otpcon, fromPlace = points2,                 mode = "WALK", cutoffSec = 420) %>%
+  otp_isochrone(otpcon = otpcon, fromPlace = points_iso2,                 mode = "WALK", cutoffSec = 420) %>%
   st_transform(crs = campoinchauspe) %>%
   mutate(mode = "walk")
 iso_7min_bike <- 
-  otp_isochrone(otpcon = otpcon, fromPlace = points2,
+  otp_isochrone(otpcon = otpcon, fromPlace = points_iso2,
                 mode = "BICYCLE", cutoffSec = 420) %>%
   st_transform(crs = campoinchauspe) %>%
   mutate(mode = "bicycle")
@@ -93,6 +104,7 @@ iso_all_modes <- rbind(iso_7min_bike, iso_7min_walk)
 
 otp_stop()
 ```
+
 
 ```{r plotting isochrones}
 right_side <- st_bbox(iso_all_modes)$xmax
@@ -103,7 +115,7 @@ bottom_side <- st_bbox(iso_all_modes)$ymin
 ggplot(iso_all_modes) +
   annotation_map_tile(zoomin = 0, progress = "none") +
   geom_sf(aes(fill = mode), alpha = 0.4) +
-  geom_sf(data = points2) + ## not showing
+  geom_sf(data = points2, color = "black", size = 1) +
   coord_sf(xlim = c(left_side, right_side), 
            ylim = c(bottom_side, top_side), expand = FALSE) +
   scale_fill_brewer(name = "Area that is reachable within 7 minutes",
@@ -113,18 +125,17 @@ ggplot(iso_all_modes) +
   labs(caption = "Basemap Copyright OpenStreetMap contributors")
 ```
 
-### Spatial join (keeping points' records in the isochrones)
+#### Spatial join (keeping points' records in the isochrones)
 
 ```{r}
-iso_all_modes2 <- st_join(iso_all_modes, points2) ##empty output
+iso_all_modes2 <- st_join(iso_all_modes, points2)
 ```
 
-
-### Analyzing relations between isochrones
+#### Analyzing relations between isochrones
 
 ```{r}
-iso_areas <- iso_all_modes %>%
-  mutate(area = st_area(iso_all_modes)) %>%
+iso_areas <- iso_all_modes2 %>%
+  mutate(area = st_area(iso_all_modes2)) %>%
   st_set_geometry(NULL) %>%
   pivot_wider(names_from = mode, values_from = area) %>%
   mutate(ratio_btow = as.numeric(bicycle) / as.numeric(walk))
@@ -132,13 +143,85 @@ iso_areas <- iso_all_modes %>%
 
 ### Defining scalars for Euclidean distance buffers
 
-I am assuming average walking speed is 5 km/h, whereas the average biking speed is 13 km/h (this was my frequent commute, taking some red lights into account, for example). The analysis might be biased if OTP used substantially different standards.
+According to http://dev.opentripplanner.org/apidoc/0.15.0/resource_PlannerResource.html the average walking speed is approximately 4.8 km/h, whereas the average biking speed is approximately 17.6 km/h. The latter seems fast when taking into account some traffic lights, but I will be still using OTP standards so that the analysis is not biased.
 
-These average speeds times the seven-minute period would be the distance, and thus the radii of a buffer. The area of that buffer would be, under some assumptions, TT * r^2.
+These average speeds times the seven-minute period would be the distance, and thus the radii of a buffer. The area of that buffer would be, under some assumptions, TT * r^2 and displayed in km^2.
 
 ```{r scalars euclidean}
-bike = pi * (7/60 * 13)^2
-walk = pi * (7/60 * 5)^2
+bike_euc = pi * (7/60 * 17.6)^2
+walk_euc = pi * (7/60 * 4.8)^2
+
+btow_euc = bike_euc / walk_euc
+
+iso_areas <- mutate(iso_areas, bicycle_km = as.numeric(bicycle) / 1000000, walk_km = as.numeric(walk) / 1000000, btob = bicycle_km / bike_euc, wtow = walk_km / walk_euc)
 ```
 
-#### figures: 45° line (implicit ratio btow), ratio btow, ratio isochrone to euclidean for both modes
+### Figure 1 - Scatterplot and "pseudo 45° line"
+
+This two-way chart shows the area of the isochrone according to the mode of transport. There is also a "pseudo 45° line" which shows the expected relationship between their areas, according to the ratio of the square of their relative speeds. It is "pseudo" because this ratio is different to the usual 1:1 relation in these scatterplots.
+
+```{r 45d}
+ggplot(iso_areas, aes(x = walk_km, y = bicycle_km, color = type, xmin = 0, ymin = 0, xmax = 1, ymax = 3)) +
+  geom_point() +
+  geom_text(aes(label = Name), hjust = 0, vjust = 0) +
+  scale_x_continuous(name = 
+            "Area within a seven-minute walking distance\n(square km)",
+            breaks = breaks <- seq(0, 1, by = 0.5),
+            labels = breaks) +
+  scale_y_continuous(name = 
+            "Area within a seven-minute biking distance\n(square km)",
+            breaks = breaks <- seq(0, 3, by = 1),
+            labels = breaks) +
+  geom_abline(intercept = 0, slope = btow_euc) +
+  theme_bw()
+```
+
+We can observe that the 6 points lie on the right of our pseudo 45° line, i.e., their walking isochrones are bigger than expected when compared to biking isochrones. This may be explained by the fact that the vast majority of the streets in Buenos Aires are one-way, thus affecting many modes of transport other than walking.
+
+### Figure 2 - Ratio bike to walking distance
+
+The previous inferences can be better shown with a ratio I had already generated. The number means how many times the biking area is bigger than the walking area.
+
+```{r ratio btow}
+iso_areas %>%
+ mutate(Name = fct_reorder(Name, ratio_btow)) %>%
+ggplot(aes(x=Name, y=ratio_btow, color = type)) +
+  geom_point() + 
+  geom_segment(aes(x=Name, xend=Name, y=0, yend=ratio_btow)) + 
+  scale_y_continuous(name = "Ratio of area reachable by bicycle in 7 minutes\nto area reachable by foot in 7 minutes",
+                     breaks = seq(0, 20, by = 5)) +
+  scale_x_discrete(name = "Landmarks") +
+theme_bw()
+```
+
+My university was next to a big highway, so that would explain how both walking and biking are constrained. Given the time span, however, the walkshade is almost complete, so biking is losing a bigger proportion of its potential area. The last place where I lived in is leading, probably because it is close to two major two-way avenues, and because some of the surrounding blocks are quite long to walk and turn round in any direction.
+
+### Figure 3 - Ratio of isochrone to Euclidean buffer for both modes
+
+Another useful and frequent ratio is how the area looks like when compared to straight line distances, as in a vacuum.
+
+```{r euclidean walk}
+iso_areas %>%
+ggplot(aes(x = Name, y = walk_km)) +
+  geom_bar(position="stack", stat="identity", fill = "#CC3333") +
+  geom_segment(aes(x = Name, xend = Name, y = 0, yend = walk_euc)) +
+  geom_text(aes(label = paste(round(wtow*100, digits = 0), "%", sep = ""), vjust = -0.2)) +
+  scale_y_continuous(name = 
+            "Area of isochrone versus area\nof Euclidean buffer (walk, sq km)") +
+  scale_x_discrete(name = "Landmarks") +
+  theme_classic()
+```
+
+```{r euclidean bike}
+iso_areas %>%
+ggplot(aes(x = Name, y = bicycle_km)) +
+  geom_bar(position="stack", stat="identity",  fill = "#0066CC") +
+  geom_segment(aes(x = Name, xend = Name, y = 0, yend = bike_euc)) +
+  geom_text(aes(label = paste(round(btob*100, digits = 0), "%", sep = ""), vjust = -0.2)) +
+  scale_y_continuous(name = 
+            "Area of isochrone versus area\nof Euclidean buffer (bike, sq km)") +
+  scale_x_discrete(name = "Landmarks") +
+  theme_classic()
+```
+
+Until now, the other figures measured relatively how big isochrones were across modes of transport. Now regarding absolute values, it appears that the place were I worked is the best connected in terms of "freedom of movement" for these two modes. It may be explained for its irregular grid (streets depart in three different directions from there). And I think it is not considering the nearby park as walkable, so this would increase the area even more. Finally, the last place were I have lived came last by far in the walking (isochrone) to walking (Euclidean), so that may explain its good relative performance (biking vs. walking). The long blocks I have mentioned might account for that.

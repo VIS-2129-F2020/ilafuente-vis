@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>VIS - points from assignment 5</name>
+    <description/>
+    <Style id="icon-1739-424242-normal">
+      <IconStyle>
+        <color>ff424242</color>
+        <scale>1</scale>
+        <Icon>
+          <href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href>
+        </Icon>
+      </IconStyle>
+      <LabelStyle>
+        <scale>0</scale>
+      </LabelStyle>
+    </Style>
+    <Style id="icon-1739-424242-highlight">
+      <IconStyle>
+        <color>ff424242</color>
+        <scale>1</scale>
+        <Icon>
+          <href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href>
+        </Icon>
+      </IconStyle>
+      <LabelStyle>
+        <scale>1</scale>
+      </LabelStyle>
+    </Style>
+    <StyleMap id="icon-1739-424242">
+      <Pair>
+        <key>normal</key>
+        <styleUrl>#icon-1739-424242-normal</styleUrl>
+      </Pair>
+      <Pair>
+        <key>highlight</key>
+        <styleUrl>#icon-1739-424242-highlight</styleUrl>
+      </Pair>
+    </StyleMap>
+    <Folder>
+      <name>pointsa5.xlsx</name>
+      <Placemark>
+        <name>home 94-10</name>
+        <description><![CDATA[Y: -34.613766<br>X: -58.390602]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.613766</value>
+          </Data>
+          <Data name="X">
+            <value>-58.390602</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.390602,-34.613766,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>school</name>
+        <description><![CDATA[Y: -34.602711<br>X: -58.392548]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.602711</value>
+          </Data>
+          <Data name="X">
+            <value>-58.392548</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.392548,-34.602711,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>home 10-20</name>
+        <description><![CDATA[Y: -34.594666<br>X: -58.386354]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.594666</value>
+          </Data>
+          <Data name="X">
+            <value>-58.386354</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.386354,-34.594666,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>university</name>
+        <description><![CDATA[Y: -34.547155<br>X: -58.446675]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.547155</value>
+          </Data>
+          <Data name="X">
+            <value>-58.446675</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.446675,-34.547155,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>work</name>
+        <description><![CDATA[Y: -34.629009<br>X: -58.37004]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.629009</value>
+          </Data>
+          <Data name="X">
+            <value>-58.37004</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.37004,-34.629009,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>home 2020</name>
+        <description><![CDATA[Y: -34.587723<br>X: -58.418262]]></description>
+        <styleUrl>#icon-1739-424242</styleUrl>
+        <ExtendedData>
+          <Data name="Y">
+            <value>-34.587723</value>
+          </Data>
+          <Data name="X">
+            <value>-58.418262</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -58.418262,-34.587723,0
+          </coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>
