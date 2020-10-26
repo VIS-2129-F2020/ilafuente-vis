@@ -1,0 +1,54 @@
+---
+title: "Assignment 6"
+author: "Ignacio Lafuente"
+date: "10/23/2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    highlight: tango
+    code_folding: hide
+---
+
+## Creative Assignment 6 - Interactive Maps
+
+```{r load libraries, message=FALSE, results='hide'}
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(htmltools)
+library(htmlwidgets)
+```
+
+```{r insert data}
+subte <- st_read("data/bocas-de-subte.shp") %>%
+  rename(Line = linea, Station = estacion, Exit_num = numero_de_) %>%
+  mutate(Elevator = ifelse(ascensor == "True", "Yes", "No"), Transfer = ifelse(is.na(lineas_de_), "No", "Yes")) %>%
+  select(Station, Line, Exit_num, Elevator, Transfer, geometry)
+```
+
+```{r maposta}
+subte$describe <- 
+  paste(subte$Station, "<br>",
+        "Line:", subte$Line, "<br>",
+        "Exit no.:", subte$Exit_num, "<br>",
+        "Elevator:", subte$Elevator) %>% 
+  lapply(htmltools::HTML)
+
+pal <- colorFactor(c("lightblue", "red", "blue", "darkgreen", "purple", "gold"), domain = c("A", "B", "C", "D", "E", "H"))
+
+maposta <- leaflet(subte) %>%
+  addProviderTiles(providers$CartoDB) %>%
+  addCircles(fillColor = ~pal(Line), stroke = ifelse(subte$Transfer == "Yes", TRUE, FALSE), fillOpacity = ifelse(subte$Elevator == "Yes", 1, 0.5), color = ifelse(subte$Transfer == "Yes", "black", FALSE), radius = 20, opacity = 0.8,
+              highlightOptions = highlightOptions(fillColor = "gray",         fillOpacity = 1),
+             popup = ~describe) %>%
+  addControl("Subway entrances in Buenos Aires", position = "topright") %>%
+  addControl('<a href="https://data.buenosaires.gob.ar/dataset/bocas-subte">Data source</a>',
+             position = "bottomleft")
+
+maposta
+```
+
+```{r savoir piquetero}
+saveWidget(maposta, file = "subte.html")
+```
