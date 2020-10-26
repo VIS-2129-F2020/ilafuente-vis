@@ -12,6 +12,8 @@ output:
 
 ## Creative Assignment 6 - Interactive Maps
 
+Subway entrances in Buenos Aires. Symbology according to line, if it is a transfer station, and if that entrance is an elevator.
+
 ```{r load libraries, message=FALSE, results='hide'}
 library(tidyverse)
 library(sf)
