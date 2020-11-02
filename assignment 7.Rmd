@@ -1,0 +1,194 @@
+---
+title: "Assignment 7"
+author: "Ignacio Lafuente"
+date: "10/29/2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    highlight: tango
+    code_folding: hide
+---
+
+## Creative assignment 7 - Raster data (interpolation)
+
+### Libraries and data
+
+```{r load libraries, message=FALSE, results='hide', warning=FALSE}
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(htmltools)
+library(htmlwidgets)
+library(raster)
+library(gstat)
+library(spatial)
+library(RColorBrewer)
+```
+
+```{r loading and displaying data, message=FALSE, results='hide', warning=FALSE}
+lastcensus <- st_read("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/informacion-censal-por-radio/caba_radios_censales.geojson", quiet = TRUE)
+
+trees_ug <- st_read("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/arbolado-publico-lineal/arbolado-publico-lineal-2017-2018.geojson", quiet = TRUE)
+
+trees_p <- read.csv("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/arbolado-en-espacios-verdes/arbolado-en-espacios-verdes.csv") %>%
+  st_as_sf(coords = c("long", "lat"), crs = st_crs(lastcensus))
+
+nhoods <- st_read("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/barrios/barrios.geojson", quiet = TRUE)
+```
+
+I will analyze the number of public trees per capita across the different neighborhoods of Buenos Aires City. I will take into account trees along the urban grid, as well as those located within open spaces. As a fun fact, trees within neither the Botanical Garden, the former Zoo, nor the Ecological Reserve were included in these databases (probably because they are not fully "open spaces").
+
+In the first place, I will have to dissolve the census tracts into their neighborhoods, in order to obtain the population of the latter according to 2010 census. Additionally, I will do a spatial join so as to count the trees that lie within each neighborhood. As a matter of fact, the WHO considers there should be one tree per 3 inhabitants in order to reach acceptable air conditions. Since the variable will be shown every 1,000 residents, the threshold would be 333 trees.
+
+```{r dissolve, message=FALSE, results='hide', warning=FALSE}
+hoods <- lastcensus %>%
+  group_by(BARRIO) %>%
+  summarise(pop = sum(POBLACION)) %>%
+  st_set_geometry(NULL)
+```
+
+```{r spatial joins, message=FALSE, results='hide', warning=FALSE}
+lastcensus <- lastcensus %>%
+  mutate(num_trees_ug = lengths(st_covers(lastcensus, trees_ug["nombre_cientifico"])), num_trees_p = lengths(st_covers(lastcensus, trees_p["nombre_cie",])), num_trees = num_trees_p + num_trees_ug, trees_per_1000res = num_trees / POBLACION * 1000, trees_per_1000resok = ifelse(trees_per_1000res == "Inf", 0, trees_per_1000res))
+
+nhoods <- nhoods %>%
+  left_join(hoods, by = c("barrio" = "BARRIO")) %>%
+  mutate(num_trees_ug = lengths(st_covers(nhoods, trees_ug["nombre_cientifico"])), num_trees_p = lengths(st_covers(nhoods, trees_p["nombre_cie"])), num_trees = num_trees_p + num_trees_ug, trees_per_1000res = num_trees / pop * 1000)
+```
+
+### Choropleth
+
+```{r choropleth, message=FALSE, warning=FALSE}
+nhoods$label <- 
+  paste(nhoods$barrio, "<br>",
+        "Population: ", prettyNum(nhoods$pop, big.mark = ","), "<br>",
+        "Number of trees: ", prettyNum(nhoods$num_trees, big.mark = ","), "<br>",
+        prettyNum(nhoods$trees_per_1000res, digits = 0), " trees per 1,000 residents") %>% 
+  lapply(htmltools::HTML)
+
+bins <- seq(min(nhoods$trees_per_1000res),
+            max(nhoods$trees_per_1000res), by = 1)
+pal <- colorNumeric("Greens", 
+                    domain = nhoods$trees_per_1000res,
+                    na.color = "#00000000")
+
+leaflet(nhoods) %>%
+  addProviderTiles(providers$CartoDB) %>%
+  addPolygons(highlightOptions = highlightOptions(fillOpacity = 1),
+              label = ~label,
+              fillColor = ~pal(trees_per_1000res),
+              weight = 1, opacity = 0.8, color = "gray") %>% 
+  addLegend(pal = pal, 
+            values = ~trees_per_1000res,
+            bins = 3,
+            opacity = 0.7, title = "Trees per 1,000 residents",
+            position = "topright") 
+```
+
+In this first map, we can observe the number of trees per resident at the neighborhood level. The scale is not very helpful since Puerto Madero neighborhood is an outlier. Puerto Madero was created in the 90s following a master plan where parks played a predominant role (and we are not even considering the Ecological Reserve as it was said before). Also, its astronomical prices and scarce buildings ensure a low number of residents. If we removed it, we would only have Villa Riachuelo, a low-income neighborhood in the South-West corner, at the edge of the WHO threshold. The last positions were mainly for those neighborhoods which are part of the downtown. Some of them include an adequate open space supply, but they are still densely populated. Although the boundaries are arbitrary, given my previous experience at the city government, it seems natural to me to talk about the neighborhoods in general terms and to confirm / reject the stereotypes about them (in this case, regarding the number of trees per resident).
+
+### Centroids
+
+```{r centroids, message=FALSE, warning=FALSE}
+campoinchauspe <- "+proj=tmerc +lat_0=-34.629717 +lon_0=-58.4627 +k=1 +x_0=100000 +y_0=100000 +a=6378388 +b=6378386.996621622 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+
+WGS84 <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
+nhood_points <- st_centroid(
+  st_transform(nhoods, crs = campoinchauspe)) %>%
+  st_transform(WGS84)
+
+leaflet(nhood_points) %>%
+  addProviderTiles(providers$CartoDB) %>%
+  addCircles(label = ~label,
+             fillColor = ~pal(trees_per_1000res),
+             color = "black", 
+             radius = 500, 
+             fillOpacity = 1) %>% 
+  addLegend(pal = pal, 
+            values = ~trees_per_1000res,
+            bins = 3,
+            opacity = 0.7, title = "Trees per 1,000 residents",
+            position = "topright")
+```
+
+In the second map, these are shown using centroids, which decreases the generated contrasts at the boundaries of the polygons. For "neutral" observers, (and unless they read the neighborhood name in the label) the points may seem to refer to specific corners or smaller-scale areas of the city, rather than to the same neighborhoods they are representing. 
+
+### Interpolation
+
+```{r interpolation, message=FALSE, warning=FALSE}
+nhood_pts_sp <- nhood_points %>%
+  st_transform(campoinchauspe) %>%
+  as_Spatial()
+
+nhood_poly_sp <- nhoods %>%
+  st_transform(campoinchauspe) %>%
+  as_Spatial()
+
+ba_raster <- raster(nhood_poly_sp, res=10)
+
+gs <- gstat(formula=trees_per_1000res~1, locations=nhood_pts_sp)
+idw_interp <- interpolate(ba_raster, gs)
+
+idw_interp_clip <- mask(idw_interp, nhood_poly_sp)
+
+leaflet(nhood_points) %>%
+  addProviderTiles(providers$CartoDB) %>%
+  addRasterImage(idw_interp_clip, colors = pal, opacity = 0.9) %>% 
+  addLegend(pal = pal, 
+            values = ~trees_per_1000res,
+            bins = 3,
+            opacity = 0.7, title = "Estimated number of trees<br>per 1,000 residents",
+            position = "topright")
+```
+
+Spatial interpolation allows for softening these boundaries, although we might be losing precision. One may expect the centroid to share more stats with the polygon than the boundaries for example. But that may be only a guess, and will depend on the internal distribution of the attribute.
+
+In general terms, however, this map makes one observe 1-the outlier of Puerto Madero 2-the fact that suburban locations seem to be better served in terms of trees per resident than the downtown.
+
+### Comparison with lower scale (census tracts)
+
+```{r comparison, message=FALSE, warning=FALSE}
+
+pal2 <- colorNumeric("Greens", 
+                    domain = lastcensus$trees_per_1000resok,
+                    na.color = "#00000000")
+
+lastcensus$label <- 
+  paste(lastcensus$RADIO_ID, "<br>",
+        "Population: ", prettyNum(lastcensus$POBLACION, big.mark = ","), "<br>",
+        "Number of trees: ", prettyNum(lastcensus$num_trees, big.mark = ","), "<br>",
+        prettyNum(lastcensus$trees_per_1000resok, big.mark = ",", digits = 0), " trees per 1,000 residents") %>% 
+  lapply(htmltools::HTML)
+
+leaflet(lastcensus) %>%
+  addProviderTiles(providers$CartoDB) %>%
+  addPolygons(highlightOptions = highlightOptions(fillOpacity = 1),
+              label = ~label,
+              fillColor = ~pal(trees_per_1000resok),
+              weight = 1, opacity = 0.9, stroke = FALSE) %>% 
+  addLegend(pal = pal2, 
+            values = ~trees_per_1000resok,
+            bins = 4,
+            opacity = 0.7, title = "Trees per 1,000 residents",
+            position = "topright") 
+```
+
+This map could challenge the interpolation method used above. However, even these census tracts are still arbitrary (why shouldn't we use a distance buffer from each resident towards his/her nearest trees?). Interpolation can imply infinite possibilities for simple 2D line segments. When it comes to 3D, in a round planet, I could hardly say one methodology is always more adequate than other.
+
+### Discussion outcomes
+
+Anyways, given all said above, I would consider:
+
+Most informative: Choropleth. Policy is usually addressed at the neighborhood level, and these metrics, shown this way, would be persuasive for decisionmaking.
+
+Most interesting: Interpolation. I expected a completely distorted outcome (and maybe it is), but it easily showed a clear contrast between the downtown and the rest.
+
+Most appropriate to the data: Census tracts. Although still arbitrary, it would seem that the smaller the scale, the most accurate are the results shown. Even if policy is addressed at the neighborhood level, to plant a tree is seldom more than a block-level intervention.
+
+Best: Centroids. Even though the most informative was the choropleth, I expected nothing from this one (I feel like a loss of information to turn polygons into points). Visually, it showed the same information than the choropleth, but it was much easier to see and compare without the polygons' fluctuating sizes and shapes.
+
+### Acknowledgements
+
+Megan Willis-Jackson helped me to achieve the spatial joins, which were so familiar to me at ArcGIS, but whose exact function I was not being able to find for R studio.
